@@ -7,6 +7,9 @@
 
 // We'll use a pipe per child to let the parent signal the child to start
 
+// simple print lock pipe (created before fork so fd's are inherited)
+int print_lock[2];
+
 void child_work(int rd) {
   int pid = getpid();
   // wait for parent to write a byte on the pipe
