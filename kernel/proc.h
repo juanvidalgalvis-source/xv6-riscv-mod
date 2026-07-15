@@ -1,4 +1,11 @@
 // Saved registers for kernel context switches.
+
+#define DEFAULT_PRIO 10
+#define AGE_THRESHOLD 5
+#define MIN_PRIORITY 0
+#define MAX_PRIORITY 20
+#define DEFAULT_MEM_LIMIT 100
+
 struct context {
   uint64 ra;
   uint64 sp;
@@ -92,6 +99,14 @@ struct proc {
   // wait_lock must be held when using this:
   struct proc *parent; // Parent process
 
+  // scheduler fields: priority (lower = higher priority) and age (times skipped)
+  int priority;          // Base priority (lower is higher priority)
+  int age;               // Aging counter: increments when skipped
+
+  // memory quota fields
+  int mem_pages;         // pages currently allocated via growproc (eager)
+  int mem_limit;         // maximum allowed pages for this process
+
   // these are private to the process, so p->lock need not be held.
   uint64 kstack;               // Virtual address of kernel stack
   uint64 sz;                   // Size of process memory (bytes)
@@ -102,3 +117,5 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
 };
+
+extern struct proc proc[NPROC];

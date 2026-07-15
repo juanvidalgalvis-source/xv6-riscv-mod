@@ -95,6 +95,50 @@ sys_kill(void)
   return kkill(pid);
 }
 
+uint64
+sys_set_priority(void)
+{
+  int pid;
+  int prio;
+  argint(0, &pid);
+  argint(1, &prio);
+  if (prio < MIN_PRIORITY || prio > MAX_PRIORITY)
+    return -1;
+  struct proc *p;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->pid == pid) {
+      p->priority = prio;
+      release(&p->lock);
+      return 0;
+    }
+    release(&p->lock);
+  }
+  return -1;
+}
+
+uint64
+sys_set_memlimit(void)
+{
+  int pid;
+  int pages;
+  argint(0, &pid);
+  argint(1, &pages);
+  if (pages < 0)
+    return -1;
+  struct proc *p;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->pid == pid) {
+      p->mem_limit = pages;
+      release(&p->lock);
+      return 0;
+    }
+    release(&p->lock);
+  }
+  return -1;
+}
+
 // return how many clock tick interrupts have occurred
 // since start.
 uint64

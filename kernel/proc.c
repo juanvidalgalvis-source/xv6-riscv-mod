@@ -6,6 +6,7 @@
 #include "proc.h"
 #include "defs.h"
 
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -125,6 +126,14 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
+  // initialize scheduler fields
+  p->priority = DEFAULT_PRIO;
+  p->age = 0;
+
+  // initialize memory quota fields
+  p->mem_pages = 0;
+  p->mem_limit = DEFAULT_MEM_LIMIT;
+
   // Allocate a trapframe page.
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0) {
     freeproc(p);
@@ -236,21 +245,52 @@ userinit(void)
 int
 growproc(int n)
 {
-  uint64 sz;
   struct proc *p = myproc();
-
-  sz = p->sz;
+  uint64 oldsz = p->sz;
   if (n > 0) {
-    if (sz + n > TRAPFRAME) {
+    if (oldsz + n > TRAPFRAME) {
       return -1;
     }
-    if ((sz = uvmalloc(p->pagetable, sz, sz + n, PTE_W)) == 0) {
+
+    // compute how many pages are needed (ceil)
+    int pages_needed = (PGROUNDUP(oldsz + n) - PGROUNDUP(oldsz)) / PGSIZE;
+
+    // check mem limit under p->lock
+    acquire(&p->lock);
+    if (p->mem_pages + pages_needed > p->mem_limit) {
+      release(&p->lock);
       return -1;
     }
+    release(&p->lock);
+
+    uint64 newsz = uvmalloc(p->pagetable, oldsz, oldsz + n, PTE_W);
+    if (newsz == 0) {
+      return -1;
+    }
+
+    // update mem_pages
+    acquire(&p->lock);
+    p->mem_pages += pages_needed;
+    release(&p->lock);
+
+    p->sz = newsz;
+
   } else if (n < 0) {
-    sz = uvmdealloc(p->pagetable, sz, sz + n);
+    uint64 newsz = uvmdealloc(p->pagetable, oldsz, oldsz + n);
+
+    // compute pages freed
+    int pages_freed = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;
+    if (pages_freed > 0) {
+      acquire(&p->lock);
+      p->mem_pages -= pages_freed;
+      if (p->mem_pages < 0)
+        p->mem_pages = 0;
+      release(&p->lock);
+    }
+
+    p->sz = newsz;
   }
-  p->sz = sz;
+
   return 0;
 }
 
@@ -437,25 +477,56 @@ scheduler(void)
     intr_on();
     intr_off();
 
-    int found = 0;
+    // Single-pass priority scan with ageing.
+    struct proc *best = 0;
+    int best_eff = 0;
+
+    // First pass: inspect processes, increment age for RUNNABLEs,
+    // compute effective priority and pick the lowest.
     for (p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if (p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
+        // increment age for this round; will reset to 0 for chosen process
+        p->age++;
+        int eff = p->priority - (p->age / AGE_THRESHOLD);
+        if (!best || eff < best_eff) {
+          best = p;
+          best_eff = eff;
+        }
       }
       release(&p->lock);
     }
-    if (found == 0) {
+
+    if (best) {
+      // Try to acquire the chosen candidate's lock and revalidate.
+      // Limit retries to avoid livelock.
+      int retries = 0;
+      while (retries < 3) {
+        acquire(&best->lock);
+        if (best->state != RUNNABLE) {
+          // lost it; release and try to find a new candidate
+          release(&best->lock);
+          best = 0;
+          break;
+        }
+
+        // This process will run. Reset age and switch to it while holding its lock.
+        best->age = 0;
+        best->state = RUNNING;
+        c->proc = best;
+        swtch(&c->context, &best->context);
+
+        // Process is done running for now.
+        c->proc = 0;
+        release(&best->lock);
+        break;
+      }
+
+      // If we failed to acquire a valid candidate, fallthrough to wfi.
+      if (!best) {
+        asm volatile("wfi");
+      }
+    } else {
       // nothing to run; stop running on this core until an interrupt.
       asm volatile("wfi");
     }
