@@ -3,7 +3,7 @@
 #include "user/user.h"
 
 #define CHILDREN 3
-#define COUNT 200000000
+#define COUNT 5000000
 
 // We'll use a pipe per child to let the parent signal the child to start
 
@@ -42,6 +42,14 @@ int main(void) {
   int pids[CHILDREN];
   int pipes[CHILDREN][2];
   int t0 = uptime();
+
+  // create print lock and seed it with one token
+  if (pipe(print_lock) < 0) {
+    printf("pipe failed\n");
+    exit(1);
+  }
+  char token = 'x';
+  write(print_lock[1], &token, 1);
 
   for (i = 0; i < CHILDREN; i++) {
     if (pipe(pipes[i]) < 0) {
