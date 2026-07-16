@@ -26,7 +26,10 @@ void child_work(int rd) {
     if (i % (COUNT/20) == 0) {
       int pct = (int)(i * 100 / COUNT);
       int t = uptime();
+      char lk;
+      read(print_lock[0], &lk, 1);
       printf("[hijo pid=%d] progreso=%d%% tick=%d\n", pid, pct, t);
+      write(print_lock[1], &lk, 1);
     }
   }
 
@@ -36,7 +39,10 @@ void child_work(int rd) {
     if (r == SBRK_ERROR) break;
     pages++;
   }
+  char lk2;
+  read(print_lock[0], &lk2, 1);
   printf("[hijo pid=%d] logro asignar %d paginas antes de fallar sbrk()\n", pid, pages);
+  write(print_lock[1], &lk2, 1);
   exit(0);
 }
 
