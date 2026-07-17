@@ -2,7 +2,7 @@
 #include "kernel/stat.h"
 #include "user/user.h"
 
-#define CHILDREN 3
+#define CHILDREN 6
 #define COUNT 30000000
 
 // simple print lock pipe (created before fork so fd's are inherited)
