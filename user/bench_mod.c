@@ -2,7 +2,7 @@
 #include "kernel/stat.h"
 #include "user/user.h"
 
-#define CHILDREN 3
+#define CHILDREN 6
 #define COUNT 30000000
 
 // We'll use a pipe per child to let the parent signal the child to start
@@ -52,6 +52,10 @@ int main(void) {
   int pipes[CHILDREN][2];
   int t0 = uptime();
 
+  // patron ciclico de prioridad/cuota: se repite cada 3 hijos
+  int priorities[3] = {2, 10, 18};
+  int memlimits[3]  = {200, 50, 10};
+
   // create print lock and seed it with one token
   if (pipe(print_lock) < 0) {
     printf("pipe failed\n");
@@ -81,22 +85,14 @@ int main(void) {
     close(pipes[i][0]); // close read end in parent
   }
 
-  // parent assigns priorities and memlimits, then signals children
-  // priorities: 2,10,18 ; memlimits: 200,50,10
-  set_priority(pids[0], 2);
-  set_memlimit(pids[0], 200);
-  write(pipes[0][1], "x", 1);
-  close(pipes[0][1]);
-
-  set_priority(pids[1], 10);
-  set_memlimit(pids[1], 50);
-  write(pipes[1][1], "x", 1);
-  close(pipes[1][1]);
-
-  set_priority(pids[2], 18);
-  set_memlimit(pids[2], 10);
-  write(pipes[2][1], "x", 1);
-  close(pipes[2][1]);
+  // parent assigns priorities and memlimits ciclicamente, luego señaliza a cada hijo
+  for (i = 0; i < CHILDREN; i++) {
+    int prof = i % 3; // perfil: 0=alta prio/cuota amplia, 1=media, 2=baja
+    set_priority(pids[i], priorities[prof]);
+    set_memlimit(pids[i], memlimits[prof]);
+    write(pipes[i][1], "x", 1);
+    close(pipes[i][1]);
+  }
 
   for (i = 0; i < CHILDREN; i++) {
     wait(0);
