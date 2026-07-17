@@ -3,7 +3,7 @@
 #include "user/user.h"
 
 #define CHILDREN 3
-#define COUNT 5000000
+#define COUNT 30000000
 
 // simple print lock pipe (created before fork so fd's are inherited)
 int print_lock[2];
